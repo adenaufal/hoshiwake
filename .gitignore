@@ -29,6 +29,7 @@ models/
 test_*/
 sorted/
 _margin_smoke/
+_model_smoke_*/
 
 # Editor and OS files
 .vscode/

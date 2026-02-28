@@ -75,7 +75,17 @@ def sort_file(src: Path, output_dir: Path, category: str, mode: str) -> Path:
 
 
 def _score_group(all_scores: dict, labels: tuple[str, ...]) -> float:
-    return float(sum(float(all_scores.get(label, 0.0)) for label in labels))
+    lowered_scores = {str(name).lower(): float(score) for name, score in all_scores.items()}
+    return float(sum(lowered_scores.get(label.lower(), 0.0) for label in labels))
+
+
+def _score_group_by_keywords(all_scores: dict, keywords: tuple[str, ...]) -> float:
+    lowered_scores = {str(name).lower(): float(score) for name, score in all_scores.items()}
+    total = 0.0
+    for label_name, score in lowered_scores.items():
+        if any(keyword in label_name for keyword in keywords):
+            total += score
+    return total
 
 
 def determine_category(result: dict, threshold: float, margin: float) -> str:
@@ -84,6 +94,15 @@ def determine_category(result: dict, threshold: float, margin: float) -> str:
     if isinstance(all_scores, dict) and all_scores:
         sfw_score = _score_group(all_scores, SFW_LABELS)
         nsfw_score = _score_group(all_scores, NSFW_LABELS)
+
+        if sfw_score == 0.0 and nsfw_score == 0.0:
+            sfw_score = _score_group_by_keywords(
+                all_scores, ("sfw", "safe", "allow", "normal", "anime", "label_0")
+            )
+            nsfw_score = _score_group_by_keywords(
+                all_scores,
+                ("nsfw", "unsafe", "hentai", "porn", "adult", "explicit", "prohibit", "label_1"),
+            )
 
         if nsfw_score >= threshold and (nsfw_score - sfw_score) >= margin:
             return "NSFW"
@@ -95,4 +114,9 @@ def determine_category(result: dict, threshold: float, margin: float) -> str:
         return "UNCERTAIN"
 
     label = str(result.get("label", ""))
+    lowered_label = label.lower()
+    if any(token in lowered_label for token in ("nsfw", "unsafe", "hentai", "porn", "adult", "explicit")):
+        return "NSFW"
+    if any(token in lowered_label for token in ("sfw", "safe", "allow", "normal", "anime")):
+        return "SFW"
     return LABEL_TO_CATEGORY.get(label, "UNCERTAIN")

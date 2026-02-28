@@ -11,6 +11,7 @@ from config import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_DEVICE,
     DEFAULT_MARGIN,
+    MODEL_ID,
     DEFAULT_MODE,
     DEFAULT_THRESHOLD,
 )
@@ -30,6 +31,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--input", type=Path, required=True, help="Input image directory")
     parser.add_argument("--output", type=Path, required=True, help="Output directory")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=MODEL_ID,
+        help="Model path or Hugging Face model id to use for classification",
+    )
     parser.add_argument(
         "--mode",
         choices=["copy", "move"],
@@ -113,7 +120,7 @@ def run() -> int:
     device = resolve_device(args.device)
 
     print("Loading model...")
-    processor, model = load_model(device)
+    processor, model = load_model(device, args.model)
 
     args.output.mkdir(parents=True, exist_ok=True)
     if not args.dry_run:

@@ -2,3 +2,5 @@ torch
 transformers
 Pillow
 tqdm
+timm
+torchvision

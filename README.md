@@ -54,6 +54,7 @@ sorted/
 |------|------|---------|-------------|
 | `--input` | path | required | Source folder containing images |
 | `--output` | path | required | Destination folder for sorted results |
+| `--model` | path or HF id | `models/siglip2-explicit` | Model source for classification |
 | `--mode` | `copy` \| `move` | `copy` | Copy or move source files |
 | `--threshold` | float | `0.65` | Minimum aggregated category score for hard SFW/NSFW |
 | `--margin` | float | `0.10` | Minimum SFW-vs-NSFW score gap for hard SFW/NSFW |
@@ -75,6 +76,33 @@ Decision rule uses aggregated category scores:
 - `SFW = Anime Picture + Normal`
 - `NSFW = Hentai + Pornography`
 - Return `SFW` or `NSFW` only when score >= `--threshold` and score gap >= `--margin`; otherwise `UNCERTAIN`
+- Binary models (`sfw/nsfw`, `allow/prohibit`, `LABEL_0/LABEL_1`) are auto-mapped to SFW/NSFW
+
+## Model Selection
+
+Default model path:
+- `models/siglip2-explicit`
+
+Alternative models to try:
+- `models/electrohead-vit-fetish-nsfw-detector` (transformers ViT, binary SFW/NSFW)
+- `models/caveduck-nsfw-classifier` (timm ConvNeXt checkpoint, binary SFW/NSFW)
+
+Note:
+- For `CaveduckAI/nsfw-classifier`, this CLI loads the `pytorch_model.pt` checkpoint with a `timm` ConvNeXt backend.
+- For Caveduck outputs, `prohibit` is treated as NSFW and `allow` as SFW.
+
+Download models:
+
+```bash
+python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='electrohead/vit-fetish-nsfw-detector', local_dir='models/electrohead-vit-fetish-nsfw-detector', allow_patterns=['config.json','model.safetensors','preprocessor_config.json'])"
+python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='CaveduckAI/nsfw-classifier', local_dir='models/caveduck-nsfw-classifier', allow_patterns=['config.json','pytorch_model.pt','README.md'])"
+```
+
+Run with a specific model:
+
+```bash
+python main.py --input "L:\path\to\images" --output "L:\path\to\sorted" --device cuda --batch-size 64 --threshold 0.80 --margin 0.12 --mode copy --model "models/electrohead-vit-fetish-nsfw-detector"
+```
 
 ## Benchmark (CUDA, 12GB VRAM)
 
