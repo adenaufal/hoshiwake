@@ -61,6 +61,29 @@ class ScoreGroupsTests(unittest.TestCase):
         sfw, nsfw = score_groups({"cat": 0.5, "dog": 0.5})
         self.assertEqual((sfw, nsfw), (0.0, 0.0))
 
+    def test_spelled_out_negated_labels_are_nsfw(self):
+        for nsfw_label in ("not_safe_for_work", "not-safe-for-work", "not safe for work", "notsafeforwork"):
+            sfw, nsfw = score_groups({"safe_for_work": 0.05, nsfw_label: 0.95})
+            self.assertAlmostEqual(sfw, 0.05, msg=nsfw_label)
+            self.assertAlmostEqual(nsfw, 0.95, msg=nsfw_label)
+
+    def test_open_nsfw_style_five_class_labels(self):
+        sfw, nsfw = score_groups(
+            {"Neutral": 0.5, "Drawings": 0.3, "Sexy": 0.05, "Hentai": 0.1, "Porn": 0.05}
+        )
+        self.assertAlmostEqual(sfw, 0.8)
+        self.assertAlmostEqual(nsfw, 0.15)
+
+    def test_index_fallback_labels_match_exactly_not_by_substring(self):
+        # "label_1" must not match inside "label_12".
+        sfw, nsfw = score_groups({"label_12": 1.0})
+        self.assertEqual((sfw, nsfw), (0.0, 0.0))
+
+    def test_non_numeric_scores_are_skipped(self):
+        sfw, nsfw = score_groups({"sfw": None, "nsfw": 0.9, "other": "bad"})
+        self.assertEqual(sfw, 0.0)
+        self.assertAlmostEqual(nsfw, 0.9)
+
 
 class DetermineCategoryTests(unittest.TestCase):
     def test_binary_nsfw_model_can_return_nsfw(self):
@@ -82,6 +105,14 @@ class DetermineCategoryTests(unittest.TestCase):
     def test_normal_explicit_pair_reaches_nsfw(self):
         result = {"all_scores": {"Normal": 0.01, "Explicit": 0.99}}
         self.assertEqual(determine_category(result, 0.65, 0.10), "NSFW")
+
+    def test_negated_safe_label_reaches_nsfw(self):
+        result = {"all_scores": {"safe_for_work": 0.05, "not_safe_for_work": 0.95}}
+        self.assertEqual(determine_category(result, 0.65, 0.10), "NSFW")
+
+    def test_neutral_dominant_five_class_reaches_sfw(self):
+        result = {"all_scores": {"neutral": 0.7, "drawings": 0.2, "sexy": 0.02, "hentai": 0.05, "porn": 0.03}}
+        self.assertEqual(determine_category(result, 0.65, 0.10), "SFW")
 
     def test_single_label_path_nsfw(self):
         result = {"label": "nsfw", "score": 0.85}

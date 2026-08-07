@@ -83,14 +83,14 @@ class PrintSummaryTests(unittest.TestCase):
             make_record(status="error"),
         ]
         output = self.summary_output(records)
-        self.assertIn("Total images found: 4", output)
+        self.assertIn("Images processed: 4", output)
         self.assertIn("SFW:", output)
         self.assertIn("Skipped:", output)
         self.assertIn("Errors:", output)
 
     def test_empty_records_do_not_divide_by_zero(self):
         output = self.summary_output([])
-        self.assertIn("Total images found: 0", output)
+        self.assertIn("Images processed: 0", output)
 
 
 if __name__ == "__main__":

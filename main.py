@@ -117,10 +117,17 @@ def validate_args(args: argparse.Namespace) -> str | None:
     output_resolved = args.output.resolve()
     if input_resolved == output_resolved:
         return "--input and --output must be different directories."
-    if input_resolved.parent == output_resolved and input_resolved.name in CATEGORIES:
+    if (
+        args.mode == "copy"
+        and input_resolved.parent == output_resolved
+        and input_resolved.name in CATEGORIES
+    ):
+        # Re-triaging a category folder back into the same output is fine in
+        # move mode (sort_file no-ops on same-file destinations), but in copy
+        # mode it would duplicate every file.
         return (
             f"--input is a category folder inside --output ('{args.input}'); "
-            "sorting it into itself would duplicate files."
+            "copying it into itself would duplicate files. Use --mode move to re-triage."
         )
     return None
 
@@ -164,7 +171,7 @@ def run() -> int:
 
     device = resolve_device(args.device)
 
-    print("Loading model...")
+    print(f"Loading model '{args.model}'...")
     processor, model = load_model(device, args.model)
 
     args.output.mkdir(parents=True, exist_ok=True)

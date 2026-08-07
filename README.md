@@ -106,7 +106,7 @@ Alternative models to try:
 - `models/caveduck-nsfw-classifier` (timm ConvNeXt checkpoint, binary SFW/NSFW) — the upstream `CaveduckAI/nsfw-classifier` repo has been removed from Hugging Face, so this backend only works with a previously downloaded local copy
 
 Note:
-- For the Caveduck checkpoint, this CLI loads `pytorch_model.pt` with a `timm` ConvNeXt backend.
+- For the Caveduck checkpoint, this CLI loads `pytorch_model.pt` with a `timm` ConvNeXt backend. Checkpoints are loaded with `weights_only=True` for safety; if a trusted legacy checkpoint fails to load in safe mode, set `HOSHIWAKE_TRUST_CHECKPOINT=1`.
 - For Caveduck outputs, `prohibit` is treated as NSFW and `allow` as SFW.
 
 Download models:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -46,13 +47,14 @@ def _load_caveduck_timm_model(model_id: str, device: str):
     std = normalization.get("std", [0.229, 0.224, 0.225])
 
     model = timm.create_model("convnext_tiny.fb_in22k_ft_in1k", pretrained=False, num_classes=2)
+    trust_checkpoint = os.environ.get("HOSHIWAKE_TRUST_CHECKPOINT") == "1"
     try:
-        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=not trust_checkpoint)
     except Exception as exc:
         raise RuntimeError(
             f"Failed to load '{ckpt_path}' in safe mode ({exc}). The checkpoint contains "
-            f"non-tensor objects; re-save it as a plain state_dict, or load it manually "
-            f"with weights_only=False only if you trust the file's origin."
+            f"non-tensor objects; re-save it as a plain state_dict, or re-run with "
+            f"HOSHIWAKE_TRUST_CHECKPOINT=1 only if you trust the file's origin."
         ) from exc
     state_dict = checkpoint.get("model_state_dict", checkpoint)
     model.load_state_dict(state_dict, strict=True)
@@ -176,18 +178,16 @@ def classify_batch(
 
     rgb_images = [image if image.mode == "RGB" else image.convert("RGB") for image in images]
     backend = getattr(model, "_hoshiwake_backend", "transformers")
-
-    if backend == "timm_caveduck":
-        return _classify_caveduck(rgb_images, processor, model, device)
+    runner = _classify_caveduck if backend == "timm_caveduck" else _classify_transformers
 
     try:
-        return _classify_transformers(rgb_images, processor, model, device)
+        return runner(rgb_images, processor, model, device)
     except Exception as batch_exc:
         print(f"[WARN] Batch classification failed ({batch_exc}); retrying images individually.")
         results = []
         for image in rgb_images:
             try:
-                results.append(_classify_transformers([image], processor, model, device)[0])
+                results.append(runner([image], processor, model, device)[0])
             except Exception as exc:
                 print(f"[WARN] Failed to classify an image: {exc}")
                 results.append(_error_result(exc))

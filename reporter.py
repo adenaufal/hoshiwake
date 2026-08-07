@@ -76,7 +76,7 @@ def print_summary(records: list[dict], report_path: Path | None = None) -> None:
         return (count / total) * 100
 
     print("\n=== Sort Summary ===")
-    print(f"Total images found: {total}")
+    print(f"Images processed: {total}")
     for category in CATEGORIES:
         count = category_counts[category]
         print(f"{category + ':':<10}{count:>6} ({percentage(count):>5.1f}%)")

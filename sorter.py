@@ -11,13 +11,27 @@ SFW_LABELS = ("Anime Picture", "Normal")
 NSFW_LABELS = ("Hentai", "Pornography")
 
 # NSFW keywords must be tested before SFW keywords: "sfw" is a substring of
-# "nsfw" and "safe" is a substring of "unsafe", so the reverse order would
-# bucket NSFW labels into the SFW group.
-NSFW_KEYWORDS = ("nsfw", "unsafe", "hentai", "porn", "adult", "explicit", "prohibit", "label_1")
-SFW_KEYWORDS = ("sfw", "safe", "allow", "normal", "anime", "label_0")
+# "nsfw", "safe" of "unsafe", and "not_safe..." spellings contain "safe", so
+# the reverse order would bucket NSFW labels into the SFW group.
+NSFW_KEYWORDS = (
+    "nsfw",
+    "unsafe",
+    "not_safe",
+    "not-safe",
+    "not safe",
+    "notsafe",
+    "hentai",
+    "porn",
+    "adult",
+    "explicit",
+    "prohibit",
+)
+SFW_KEYWORDS = ("sfw", "safe", "allow", "normal", "anime", "neutral", "drawing", "general", "sensitive")
 
-_SFW_EXACT = {label.lower() for label in SFW_LABELS}
-_NSFW_EXACT = {label.lower() for label in NSFW_LABELS}
+# Index-fallback names are matched exactly, not as substrings, so that
+# "label_1" cannot match inside "label_12".
+_SFW_EXACT = {label.lower() for label in SFW_LABELS} | {"label_0"}
+_NSFW_EXACT = {label.lower() for label in NSFW_LABELS} | {"label_1"}
 
 
 def discover_images(input_dir: Path) -> list[Path]:
@@ -101,7 +115,10 @@ def score_groups(all_scores: dict) -> tuple[float, float]:
     nsfw = 0.0
     for name, score in all_scores.items():
         lowered = str(name).lower()
-        value = float(score)
+        try:
+            value = float(score)
+        except (TypeError, ValueError):
+            continue
         if lowered in _NSFW_EXACT:
             nsfw += value
         elif lowered in _SFW_EXACT:
@@ -130,8 +147,8 @@ def determine_category(result: dict, threshold: float, margin: float) -> str:
 
     label = str(result.get("label", ""))
     lowered_label = label.lower()
-    if any(token in lowered_label for token in NSFW_KEYWORDS):
+    if lowered_label in _NSFW_EXACT or any(token in lowered_label for token in NSFW_KEYWORDS):
         return "NSFW"
-    if any(token in lowered_label for token in SFW_KEYWORDS):
+    if lowered_label in _SFW_EXACT or any(token in lowered_label for token in SFW_KEYWORDS):
         return "SFW"
     return LABEL_TO_CATEGORY.get(label, "UNCERTAIN")
