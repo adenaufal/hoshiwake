@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from classifier import classify_batch, load_model
 from config import (
+    CATEGORIES,
     DEFAULT_BATCH_SIZE,
     DEFAULT_DEVICE,
     DEFAULT_MARGIN,
@@ -21,6 +22,7 @@ from sorter import (
     discover_images,
     ensure_output_dirs,
     load_image,
+    score_groups,
     sort_file,
 )
 
@@ -96,21 +98,71 @@ def resolve_device(requested_device: str) -> str:
     return requested_device
 
 
+def validate_args(args: argparse.Namespace) -> str | None:
+    """Return an error message for invalid arguments, or None if they are usable."""
+    if not args.input.exists() or not args.input.is_dir():
+        return f"input path '{args.input}' does not exist or is not a directory."
+    if args.output.exists() and not args.output.is_dir():
+        return f"output path '{args.output}' exists but is not a directory."
+    if args.batch_size < 1:
+        return "--batch-size must be >= 1."
+    if not (0.0 <= args.threshold <= 1.0):
+        return "--threshold must be between 0.0 and 1.0."
+    if not (0.0 <= args.margin <= 1.0):
+        return "--margin must be between 0.0 and 1.0."
+    if not args.model.strip():
+        return "--model must not be empty."
+
+    input_resolved = args.input.resolve()
+    output_resolved = args.output.resolve()
+    if input_resolved == output_resolved:
+        return "--input and --output must be different directories."
+    if (
+        args.mode == "copy"
+        and input_resolved.parent == output_resolved
+        and input_resolved.name in CATEGORIES
+    ):
+        # Re-triaging a category folder back into the same output is fine in
+        # move mode (sort_file no-ops on same-file destinations), but in copy
+        # mode it would duplicate every file.
+        return (
+            f"--input is a category folder inside --output ('{args.input}'); "
+            "copying it into itself would duplicate files. Use --mode move to re-triage."
+        )
+    return None
+
+
+def build_record(
+    path: Path,
+    category: str,
+    result: dict,
+    status: str,
+    destination: Path | None = None,
+) -> dict:
+    all_scores = result.get("all_scores") or {}
+    sfw_score, nsfw_score = score_groups(all_scores) if all_scores else (0.0, 0.0)
+    return {
+        "filename": path.name,
+        "category": category,
+        "label": result.get("label", ""),
+        "score": result.get("score", 0.0),
+        "sfw_score": sfw_score,
+        "nsfw_score": nsfw_score,
+        "all_scores": all_scores,
+        "destination": str(destination) if destination is not None else "",
+        "status": status,
+    }
+
+
 def run() -> int:
     args = parse_args()
 
-    if not args.input.exists() or not args.input.is_dir():
-        print(f"Error: input path '{args.input}' does not exist or is not a directory.")
+    error = validate_args(args)
+    if error:
+        print(f"Error: {error}")
         return 1
-    if args.batch_size < 1:
-        print("Error: --batch-size must be >= 1.")
-        return 1
-    if not (0.0 <= args.threshold <= 1.0):
-        print("Error: --threshold must be between 0.0 and 1.0.")
-        return 1
-    if not (0.0 <= args.margin <= 1.0):
-        print("Error: --margin must be between 0.0 and 1.0.")
-        return 1
+    if args.threshold == 1.0:
+        print("[WARN] --threshold 1.0 is unreachable for softmax outputs; every image will be UNCERTAIN.")
 
     image_paths = discover_images(args.input)
     if not image_paths:
@@ -119,7 +171,7 @@ def run() -> int:
 
     device = resolve_device(args.device)
 
-    print("Loading model...")
+    print(f"Loading model '{args.model}'...")
     processor, model = load_model(device, args.model)
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -127,6 +179,7 @@ def run() -> int:
         ensure_output_dirs(args.output)
 
     records: list[dict] = []
+    exit_code = 0
 
     try:
         with tqdm(total=len(image_paths), desc="Processing", unit="img") as progress:
@@ -137,16 +190,7 @@ def run() -> int:
                 for path in batch_paths:
                     image = load_image(path)
                     if image is None:
-                        records.append(
-                            {
-                                "filename": path.name,
-                                "category": "UNCERTAIN",
-                                "label": "",
-                                "score": 0.0,
-                                "all_scores": {},
-                                "status": "skipped",
-                            }
-                        )
+                        records.append(build_record(path, "UNCERTAIN", {}, "skipped"))
                         progress.update(1)
                         continue
 
@@ -162,22 +206,23 @@ def run() -> int:
                         raise RuntimeError("Classifier returned an unexpected number of results.")
 
                     for path, result in zip(loaded_paths, batch_results):
+                        if result.get("error"):
+                            records.append(build_record(path, "UNCERTAIN", result, "error"))
+                            progress.update(1)
+                            continue
+
                         category = determine_category(result, args.threshold, args.margin)
                         status = "dry-run" if args.dry_run else "sorted"
+                        destination = None
 
                         if not args.dry_run:
-                            sort_file(path, args.output, category, args.mode)
+                            try:
+                                destination = sort_file(path, args.output, category, args.mode)
+                            except OSError as exc:
+                                print(f"[WARN] Failed to {args.mode} '{path.name}': {exc}")
+                                status = "error"
 
-                        records.append(
-                            {
-                                "filename": path.name,
-                                "category": category,
-                                "label": result["label"],
-                                "score": result["score"],
-                                "all_scores": result["all_scores"],
-                                "status": status,
-                            }
-                        )
+                        records.append(build_record(path, category, result, status, destination))
                         progress.update(1)
                 finally:
                     for image in loaded_images:
@@ -185,13 +230,15 @@ def run() -> int:
 
     except KeyboardInterrupt:
         print("\nInterrupted by user. Writing partial report...")
-        report_path = write_csv(records, args.output)
-        print_summary(records, report_path)
-        return 130
+        exit_code = 130
+    except Exception as exc:
+        print(f"\n[ERROR] Run aborted: {exc}")
+        print("Writing partial report for the files processed so far...")
+        exit_code = 1
 
     report_path = write_csv(records, args.output)
     print_summary(records, report_path)
-    return 0
+    return exit_code
 
 
 def main() -> int:

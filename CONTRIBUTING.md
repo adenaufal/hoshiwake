@@ -17,14 +17,15 @@ pip install -r requirements.txt
 Run these checks before opening a pull request:
 
 ```bash
-python -m compileall .
+python -m compileall -q main.py classifier.py sorter.py reporter.py config.py tests
 python -c "import torch; import transformers; from PIL import Image; import tqdm"
+python -m unittest discover -s tests
 ```
 
-Optional dry-run against a sample folder:
+Optional dry-run against a folder of your own sample images:
 
 ```bash
-python main.py --input ./images --output ./sorted --dry-run
+python main.py --input /path/to/sample-images --output ./sorted --dry-run
 ```
 
 ## Pull Request Guidelines

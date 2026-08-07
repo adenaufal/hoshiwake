@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +47,15 @@ def _load_caveduck_timm_model(model_id: str, device: str):
     std = normalization.get("std", [0.229, 0.224, 0.225])
 
     model = timm.create_model("convnext_tiny.fb_in22k_ft_in1k", pretrained=False, num_classes=2)
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    trust_checkpoint = os.environ.get("HOSHIWAKE_TRUST_CHECKPOINT") == "1"
+    try:
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=not trust_checkpoint)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load '{ckpt_path}' in safe mode ({exc}). The checkpoint contains "
+            f"non-tensor objects; re-save it as a plain state_dict, or re-run with "
+            f"HOSHIWAKE_TRUST_CHECKPOINT=1 only if you trust the file's origin."
+        ) from exc
     state_dict = checkpoint.get("model_state_dict", checkpoint)
     model.load_state_dict(state_dict, strict=True)
     model = model.to(device)
@@ -80,7 +89,7 @@ def load_model(device: str, model_id: str = MODEL_ID):
 
     model_id_lower = model_id.lower()
     looks_like_caveduck = "caveduckai/nsfw-classifier" in model_id_lower or (
-        (Path(model_id) / "pytorch_model.pt").exists()
+        bool(model_id) and (Path(model_id) / "pytorch_model.pt").exists()
     )
     if looks_like_caveduck:
         try:
@@ -100,7 +109,9 @@ def _label_for_index(id2label: dict[Any, str], index: int) -> str:
     string_index = str(index)
     if string_index in id2label:
         return id2label[string_index]
-    return string_index
+    # "label_<n>" (not the bare index) so downstream keyword matching in
+    # sorter.score_groups can still bucket the class via "label_0"/"label_1".
+    return f"label_{index}"
 
 
 def _build_result(probabilities: torch.Tensor, id2label: dict[Any, str]) -> dict[str, Any]:
@@ -120,6 +131,16 @@ def _build_result(probabilities: torch.Tensor, id2label: dict[Any, str]) -> dict
     }
 
 
+def _error_result(exc: Exception) -> dict[str, Any]:
+    return {
+        "label": "",
+        "label_index": -1,
+        "score": 0.0,
+        "all_scores": {},
+        "error": str(exc),
+    }
+
+
 def _classify_transformers(images: list[Image.Image], processor, model, device: str):
     inputs = processor(images=images, return_tensors="pt")
     inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
@@ -132,7 +153,7 @@ def _classify_transformers(images: list[Image.Image], processor, model, device: 
 
 
 def _classify_caveduck(images: list[Image.Image], processor, model, device: str):
-    tensors = [processor(image.convert("RGB")) for image in images]
+    tensors = [processor(image) for image in images]
     batch = torch.stack(tensors, dim=0).to(device)
 
     with torch.no_grad():
@@ -146,23 +167,30 @@ def _classify_caveduck(images: list[Image.Image], processor, model, device: str)
 def classify_batch(
     images: list[Image.Image], processor, model, device: str
 ) -> list[dict[str, Any]]:
-    """Classify a batch of PIL images."""
+    """Classify a batch of PIL images.
+
+    Always returns one result per input image. Images that fail even the
+    single-image retry get an error result ({"error": ..., "all_scores": {}})
+    instead of aborting the whole batch.
+    """
     if not images:
         return []
 
-    rgb_images = [image.convert("RGB") for image in images]
+    rgb_images = [image if image.mode == "RGB" else image.convert("RGB") for image in images]
     backend = getattr(model, "_hoshiwake_backend", "transformers")
-
-    if backend == "timm_caveduck":
-        return _classify_caveduck(rgb_images, processor, model, device)
+    runner = _classify_caveduck if backend == "timm_caveduck" else _classify_transformers
 
     try:
-        return _classify_transformers(rgb_images, processor, model, device)
-    except Exception:
+        return runner(rgb_images, processor, model, device)
+    except Exception as batch_exc:
+        print(f"[WARN] Batch classification failed ({batch_exc}); retrying images individually.")
         results = []
         for image in rgb_images:
-            single_result = _classify_transformers([image], processor, model, device)[0]
-            results.append(single_result)
+            try:
+                results.append(runner([image], processor, model, device)[0])
+            except Exception as exc:
+                print(f"[WARN] Failed to classify an image: {exc}")
+                results.append(_error_result(exc))
         return results
 
 

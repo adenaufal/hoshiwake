@@ -2,12 +2,17 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
-  smoke:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
 
     steps:
       - name: Checkout
@@ -16,15 +21,20 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install dependencies (CPU-only torch)
         run: |
           python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
-      - name: Smoke checks
-        run: |
-          python -m compileall .
-          python -c "import torch; import transformers; from PIL import Image; import tqdm"
+      - name: Compile sources
+        run: python -m compileall -q main.py classifier.py sorter.py reporter.py config.py tests
+
+      - name: Import smoke test
+        run: python -c "import torch; import transformers; from PIL import Image; import tqdm; import main, classifier, sorter, reporter, config"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
