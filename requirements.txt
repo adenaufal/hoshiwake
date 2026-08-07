@@ -1,6 +1,7 @@
-torch
-transformers
-Pillow
-tqdm
-timm
-torchvision
+torch>=2.2
+torchvision>=0.17
+transformers>=4.40
+huggingface_hub>=0.23
+Pillow>=10.0
+tqdm>=4.65
+timm>=0.9
