@@ -7,6 +7,8 @@
 ![HuggingFace](https://img.shields.io/badge/HuggingFace-transformers-yellow)
 [![CI](https://github.com/adenaufal/hoshiwake/actions/workflows/ci.yml/badge.svg)](https://github.com/adenaufal/hoshiwake/actions/workflows/ci.yml)
 
+> **Status: ML showcase** — this project now lives as a showcase of a local ML classification pipeline. It is **not under serious development**: no guaranteed updates, fixes, or roadmap work. Use it as a reference, fork it, or borrow the ideas — but treat it as a demo, not an actively maintained tool.
+
 A local CLI tool that classifies anime images as SFW, NSFW, or UNCERTAIN and sorts them into folders automatically. Powered by [prithivMLmods/siglip2-x256-explicit-content](https://huggingface.co/prithivMLmods/siglip2-x256-explicit-content) (SiglipForImageClassification). No cloud, no GPU required, and no images leave your machine. The name comes from 星分け, Japanese for "sorting stars".
 
 ## Features
